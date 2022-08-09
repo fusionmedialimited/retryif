@@ -6,8 +6,8 @@ import: github.com/fusionmedialimited/retryif
 summary: Retry requests based on status codes
 
 testData:
-  retryif:
-    statusCode: [503]
-    timeout: 5
-    attempts: 3
-    errorMessage: "Test...1...2...3"
+  statusCode:
+    - 503
+  timeout: 5
+  attempts: 3
+  errorMessage: "Test...1...2...3"

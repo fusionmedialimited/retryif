@@ -1,93 +1,107 @@
 package retryif
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net/http"
+	"net/http/httptest"
 )
 
 const (
 	defaultErrMSG = "Service Unavailable"
-	defaultStatus = 503
-)
-
-var (
-	LoggerDEBUG = log.New(ioutil.Discard, "DEBUG: retryif: ", log.Ldate|log.Ltime|log.Lshortfile)
-	LoggerERROR = log.New(ioutil.Discard, "ERROR: retryif: ", log.Ldate|log.Ltime|log.Lshortfile)
-	LoggerINFO  = log.New(ioutil.Discard, "INFO: retryif: ", log.Ldate|log.Ltime|log.Lshortfile)
+	defaultstatus = 503
 )
 
 type Config struct {
-	attempts     int    `json:"attempts,omitempty",yaml:"attempts,omitempty"`
-	Status       []int  `json:"statusCode,omitempty",yaml:"statusCode,omitempty"`
-	timeout      int    `json:"timeout,omitempty",yaml:"timeout,omitempty"`
-	errorMessage string `json:"errorMessage,omitempty",yaml:"errorMessage,omitempty"`
+	attempts     int    `json:"attempts"`
+	Status       []int  `json:"status"`
+	timeout      int    `json:"timeout,omitempty"`
+	errorMessage string `json:"errorMessage,omitempty"`
 }
 
 func CreateConfig() *Config {
-	return &Config{
-		attempts:     2,
-		Status:       make([]int, 100),
-		timeout:      5,
-		errorMessage: "Service Unavailable",
-	}
+	return &Config{}
 }
 
 type RetryIF struct {
 	name         string
 	attempts     int
 	next         http.Handler
-	listener     Listener
-	Status       []int
+	status       []int
 	timeout      int
 	errorMessage string
 }
 
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
-	/*
-		if len(config.Status) == 0 {
-			return nil, fmt.Errorf("status is empty, please define at lease on statos code")
-		}
 
-	*/
+	fmt.Println(config)
+
+	if len(config.Status) == 0 {
+		return nil, fmt.Errorf("status is empty, please define at lease on status code")
+	}
 
 	return &RetryIF{
 		name:         name,
 		next:         next,
 		attempts:     config.attempts,
-		Status:       config.Status,
+		status:       config.Status,
 		timeout:      config.timeout,
 		errorMessage: config.errorMessage,
 	}, nil
 }
 
-func (retryIf *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
-	/*
-		if retryIf.attempts == 1 {
-			retryIf.next.ServeHTTP(rw, req)
-			return
-		}
-	*/
+	if r.attempts == 1 {
+		r.next.ServeHTTP(rw, req)
+		return
+	}
 
-	//attempts := 1
+	attempts := 1
 	fmt.Println("Hello From Plugin")
 
-	retryIf.next.ServeHTTP(rw, req)
+	code, body := r.testRequest(req)
+
+	fmt.Printf("Got new status: %d\n", code)
+
+	if r.containsCode(code) {
+		for attempts < r.attempts {
+			attempts++
+
+			attemptCode, attemptBody := r.testRequest(req)
+			fmt.Printf("Got new status: %d", attemptCode)
+
+			if r.containsCode(attemptCode) {
+				rw.Write(attemptBody.Bytes())
+				fmt.Printf("Got new status: %b", attemptBody)
+				break
+			} else if attempts >= r.attempts && r.containsCode(attemptCode) {
+				fmt.Println("Could not get other status, the status is ", attemptCode)
+				break
+			}
+		}
+	} else {
+		rw.Write(body.Bytes())
+		fmt.Println("Successful in first attempt")
+	}
 }
 
-type Listener interface {
-	Retried(attempts int)
-}
+func (r *RetryIF) containsCode(stCode int) bool {
 
-func isCodeMatch(stCode int, listCodes []int) bool {
+	fmt.Println("RetryIf status list: ", r.status, " got staus from test: ", stCode)
 	var exists bool = false
-	for _, code := range listCodes {
+	for _, code := range r.status {
 		if code == stCode {
 			exists = true
 		}
 	}
 	return exists
+}
+
+func (r *RetryIF) testRequest(req *http.Request) (int, *bytes.Buffer) {
+	recorder := httptest.NewRecorder()
+	r.next.ServeHTTP(recorder, req)
+
+	return recorder.Code, recorder.Body
 }
