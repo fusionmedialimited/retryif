@@ -15,7 +15,7 @@ const (
 
 type Config struct {
 	attempts     int    `json:"attempts"`
-	Status       []int  `json:"status"`
+	status       []int  `json:"status"`
 	timeout      int    `json:"timeout,omitempty"`
 	errorMessage string `json:"errorMessage,omitempty"`
 }
@@ -37,7 +37,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 
 	fmt.Println(config)
 
-	if len(config.Status) == 0 {
+	if len(config.status) == 0 {
 		return nil, fmt.Errorf("status is empty, please define at lease on status code")
 	}
 
@@ -45,7 +45,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		name:         name,
 		next:         next,
 		attempts:     config.attempts,
-		status:       config.Status,
+		status:       config.status,
 		timeout:      config.timeout,
 		errorMessage: config.errorMessage,
 	}, nil
