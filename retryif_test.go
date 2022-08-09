@@ -10,7 +10,7 @@ import (
 
 func TestRetryIf(t *testing.T) {
 	cfg := retryif.CreateConfig()
-	cfg.status = append(cfg.status, 503)
+	cfg.Status = append(cfg.Status, 503)
 
 	ctx := context.Background()
 
