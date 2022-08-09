@@ -28,7 +28,7 @@ type Config struct {
 
 func CreateConfig() *Config {
 	return &Config{
-		attempts:     1,
+		attempts:     2,
 		Status:       make([]int, 100),
 		timeout:      5,
 		errorMessage: "Service Unavailable",
@@ -36,6 +36,7 @@ func CreateConfig() *Config {
 }
 
 type RetryIF struct {
+	name         string
 	attempts     int
 	next         http.Handler
 	listener     Listener
@@ -44,7 +45,7 @@ type RetryIF struct {
 	errorMessage string
 }
 
-func New(ctx context.Context, next http.Handler, config *Config) (http.Handler, error) {
+func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	/*
 		if len(config.Status) == 0 {
 			return nil, fmt.Errorf("status is empty, please define at lease on statos code")
@@ -53,6 +54,7 @@ func New(ctx context.Context, next http.Handler, config *Config) (http.Handler, 
 	*/
 
 	return &RetryIF{
+		name:         name,
 		next:         next,
 		attempts:     config.attempts,
 		Status:       config.Status,
