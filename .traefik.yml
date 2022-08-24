@@ -6,6 +6,6 @@ import: github.com/fusionmedialimited/retryif
 summary: Retry requests based on status codes
 
 testData:
-  statusCode:
+  status:
     - 503
   attempts: 3
