@@ -28,7 +28,7 @@ type RetryIF struct {
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 
 	if len(config.Status) == 0 {
-		return nil, fmt.Errorf("status is empty, please define at lease on Status code")
+		return nil, fmt.Errorf("status is empty, please define at least on Status code")
 	}
 
 	return &RetryIF{
