@@ -1,8 +1,8 @@
 package retryif
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,19 +12,23 @@ import (
 )
 
 var (
-	LoggerInfo  = log.New(io.Discard, "retryif [INFO]: ", log.Ldate|log.Ltime|log.Lshortfile)
-	LoggerDebug = log.New(io.Discard, "retryif [DEBUG]: ", log.Ldate|log.Ltime|log.Lshortfile)
-	LoggerError = log.New(io.Discard, "retryif [Error]: ", log.Ldate|log.Ltime|log.Lshortfile)
+	LoggerInfo  = log.New(io.Discard, "INFO: RetryIF: ", log.Ldate|log.Ltime|log.Lshortfile)
+	LoggerDebug = log.New(io.Discard, "DEBUG: RetryIF: ", log.Ldate|log.Ltime|log.Lshortfile)
+	LoggerError = log.New(io.Discard, "Error: RetryIF: ", log.Ldate|log.Ltime|log.Lshortfile)
 )
 
 type Config struct {
 	Attempts int    `json:"attempts"`
 	Status   []int  `json:"status"`
-	LogLevel string `json:"log_level,omitempty"`
+	LogLevel string `json:"loglevel"`
 }
 
 func CreateConfig() *Config {
-	return &Config{}
+	return &Config{
+		Attempts: 2,
+		Status:   []int{503},
+		LogLevel: "INFO",
+	}
 }
 
 type RetryIF struct {
@@ -39,6 +43,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	if len(config.Status) == 0 {
 		return nil, fmt.Errorf("status is empty, please define at least on Status code")
 	}
+
 	// Set Default log level to info in case log level to defined
 	switch config.LogLevel {
 	case "ERROR":
@@ -71,36 +76,42 @@ func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	attempts := 1
-	code, body := r.testRequest(req)
+	respond := r.testRequest(req)
 
-	LoggerInfo.Printf("Got new Status: %d", code)
-	LoggerDebug.Printf("%s", string(body.Bytes()))
+	LoggerInfo.Printf("Got new Status: %d", respond.Code)
 
-	if r.containsCode(code) {
+	if r.containsCode(respond.Code) {
 		for attempts < r.attempts {
 			attempts++
 
-			attemptCode, attemptBody := r.testRequest(req)
-			LoggerInfo.Printf("Got new Status: %d\n", attemptCode)
+			attemptRespond := r.testRequest(req)
+			LoggerInfo.Printf("Got new Status: %d\n", attemptRespond.Code)
 
-			if !r.containsCode(attemptCode) {
-				rw.WriteHeader(attemptCode)
-				rw.Write(attemptBody.Bytes())
+			if !r.containsCode(attemptRespond.Code) {
+				rw.WriteHeader(attemptRespond.Code)
+				rw.Write(attemptRespond.Body.Bytes())
 
-				LoggerInfo.Printf("Request Got vaild staus code, new status code: %d, Attempts number: %d\n", attemptCode, attempts)
+				LoggerInfo.Printf("Request Got valid status code, new status code: %d, Attempts number: %d\n", attemptRespond.Code, attempts)
+
+				PrintDebugResponse(req, attemptRespond)
 				break
-			} else if attempts >= r.attempts && r.containsCode(attemptCode) {
+			} else if attempts >= r.attempts && r.containsCode(attemptRespond.Code) {
 
-				rw.WriteHeader(attemptCode)
-				rw.Write(attemptBody.Bytes())
+				rw.WriteHeader(attemptRespond.Code)
+				rw.Write(attemptRespond.Body.Bytes())
 
-				LoggerInfo.Printf("Could not get other Status, the Status is %d, Attempts number: %d\n", attemptCode, attempts)
+				LoggerInfo.Printf("Could not get other Status, the Status is %d, Attempts number: %d\n", attemptRespond.Code, attempts)
+
+				PrintDebugResponse(req, attemptRespond)
 				break
 			}
 		}
 	} else {
-		rw.Write(body.Bytes())
+		rw.WriteHeader(respond.Code)
+		rw.Write(respond.Body.Bytes())
 		LoggerInfo.Print("Request passed successfully in first attempt :)")
+
+		PrintDebugResponse(req, respond)
 	}
 }
 
@@ -114,9 +125,22 @@ func (r *RetryIF) containsCode(stCode int) bool {
 	return exists
 }
 
-func (r *RetryIF) testRequest(req *http.Request) (int, *bytes.Buffer) {
+func (r *RetryIF) testRequest(req *http.Request) *httptest.ResponseRecorder {
 	recorder := httptest.NewRecorder()
 	r.next.ServeHTTP(recorder, req)
 
-	return recorder.Code, recorder.Body
+	return recorder
+}
+
+func PrintDebugResponse(req *http.Request, res *httptest.ResponseRecorder) {
+	// Print Request Headers:
+	jsonReqHeaders, _ := json.Marshal(req.Header)
+	LoggerDebug.Println("Request Headers: ", string(jsonReqHeaders))
+
+	// Print Respond Headers:
+	jsonRespondHeaders, _ := json.Marshal(res.Result().Header)
+	LoggerDebug.Println("Respond Headers: ", string(jsonRespondHeaders))
+
+	// Print Respond Body:
+	LoggerDebug.Println(string(res.Body.Bytes()))
 }
