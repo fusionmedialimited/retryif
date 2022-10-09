@@ -29,5 +29,4 @@ func TestRetryIf(t *testing.T) {
 	}
 
 	handler.ServeHTTP(recorder, req)
-
 }
