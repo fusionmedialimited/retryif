@@ -1,21 +1,37 @@
 package retryif
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+)
+
+var (
+	LoggerInfo  = log.New(io.Discard, "INFO: RetryIF: ", log.Ldate|log.Ltime|log.Lshortfile)
+	LoggerDebug = log.New(io.Discard, "DEBUG: RetryIF: ", log.Ldate|log.Ltime|log.Lshortfile)
+	LoggerWarn  = log.New(io.Discard, "WARN: RetryIF: ", log.Ldate|log.Ltime|log.Lshortfile)
+	LoggerError = log.New(io.Discard, "Error: RetryIF: ", log.Ldate|log.Ltime|log.Lshortfile)
 )
 
 type Config struct {
-	Attempts        int   `json:"attempts"`
-	Status          []int `json:"status"`
-	InitialInterval int   `json:"initial_interval"`
+	Attempts int                 `json:"attempts"`
+	Status   []int               `json:"status"`
+	Headers  map[string][]string `json:"headers"`
+	LogLevel string              `json:"loglevel"`
 }
 
 func CreateConfig() *Config {
-	return &Config{}
+	return &Config{
+		Attempts: 2,
+		Status:   []int{503},
+		Headers:  make(map[string][]string),
+		LogLevel: "INFO",
+	}
 }
 
 type RetryIF struct {
@@ -28,7 +44,29 @@ type RetryIF struct {
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 
 	if len(config.Status) == 0 {
-		return nil, fmt.Errorf("status is empty, please define at least on Status code")
+		return nil, fmt.Errorf("status is empty, please define at least one of status")
+	}
+
+	// Set Default log level to info in case log level to defined
+	switch config.LogLevel {
+	case "ERROR":
+		LoggerError.SetOutput(os.Stdout)
+	case "WARN":
+		LoggerError.SetOutput(os.Stdout)
+		LoggerWarn.SetOutput(os.Stdout)
+	case "INFO":
+		LoggerError.SetOutput(os.Stdout)
+		LoggerWarn.SetOutput(os.Stdout)
+		LoggerInfo.SetOutput(os.Stdout)
+	case "DEBUG":
+		LoggerError.SetOutput(os.Stdout)
+		LoggerWarn.SetOutput(os.Stdout)
+		LoggerInfo.SetOutput(os.Stdout)
+		LoggerDebug.SetOutput(os.Stdout)
+	default:
+		LoggerError.SetOutput(os.Stdout)
+		LoggerWarn.SetOutput(os.Stdout)
+		LoggerInfo.SetOutput(os.Stdout)
 	}
 
 	return &RetryIF{
@@ -47,33 +85,60 @@ func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	attempts := 1
-	code, body := r.testRequest(req)
+	respond := r.testRequest(req)
 
-	fmt.Printf("Got new Status: %d\n", code)
+	LoggerInfo.Printf("Got new Status: %d", respond.StatusCode)
 
-	if r.containsCode(code) {
+	if r.containsCode(respond.StatusCode) {
 		for attempts < r.attempts {
 			attempts++
 
-			attemptCode, attemptBody := r.testRequest(req)
-			fmt.Printf("Got new Status: %d\n", attemptCode)
+			attemptRespond := r.testRequest(req)
+			LoggerInfo.Printf("Got new Status: %d\n", attemptRespond.StatusCode)
 
-			if !r.containsCode(attemptCode) {
-				rw.Write(attemptBody.Bytes())
-				fmt.Printf("Request Got vaild staus code, new status code: %d, Attempts number: %d\n", attemptCode, attempts)
+			if !r.containsCode(attemptRespond.StatusCode) {
+				rw.WriteHeader(attemptRespond.StatusCode)
+
+				attemptBody, err := io.ReadAll(attemptRespond.Body)
+				if err != nil {
+					LoggerError.Println(err)
+				}
+
+				rw.Write(attemptBody)
+
+				LoggerInfo.Printf("Request Got valid status code, new status code: %d, Attempts number: %d\n", attemptRespond.StatusCode, attempts)
+
+				PrintDebugResponse(req, attemptRespond)
 				break
-			} else if attempts >= r.attempts && r.containsCode(attemptCode) {
+			} else if attempts >= r.attempts && r.containsCode(attemptRespond.StatusCode) {
 
-				rw.WriteHeader(attemptCode)
-				rw.Write(attemptBody.Bytes())
+				rw.WriteHeader(attemptRespond.StatusCode)
 
-				fmt.Errorf("Could not get other Status, the Status is %d, Attempts number: %d\n", attemptCode, attempts)
+				attemptsBody, err := io.ReadAll(attemptRespond.Body)
+				if err != nil {
+					LoggerError.Println(err)
+				}
+
+				rw.Write(attemptsBody)
+
+				LoggerInfo.Printf("Could not get other Status, the Status is %d, Attempts number: %d\n", attemptRespond.StatusCode, attempts)
+
+				PrintDebugResponse(req, attemptRespond)
 				break
 			}
 		}
 	} else {
-		rw.Write(body.Bytes())
-		fmt.Println("Successful in first attempt")
+		rw.WriteHeader(respond.StatusCode)
+
+		body, err := io.ReadAll(respond.Body)
+		if err != nil {
+			LoggerError.Println(err)
+		}
+
+		rw.Write(body)
+		LoggerInfo.Print("Request passed successfully in first attempt :)")
+
+		PrintDebugResponse(req, respond)
 	}
 }
 
@@ -87,9 +152,28 @@ func (r *RetryIF) containsCode(stCode int) bool {
 	return exists
 }
 
-func (r *RetryIF) testRequest(req *http.Request) (int, *bytes.Buffer) {
+func (r *RetryIF) testRequest(req *http.Request) *http.Response {
 	recorder := httptest.NewRecorder()
 	r.next.ServeHTTP(recorder, req)
 
-	return recorder.Code, recorder.Body
+	resp := recorder.Result()
+
+	return resp
+}
+
+func PrintDebugResponse(req *http.Request, res *http.Response) {
+	// Print Request Headers:
+	jsonReqHeaders, _ := json.Marshal(req.Header)
+	LoggerDebug.Println("Request Headers: ", string(jsonReqHeaders))
+
+	// Print Respond Headers:
+	jsonRespondHeaders, _ := json.Marshal(res.Header)
+	LoggerDebug.Println("Respond Headers: ", string(jsonRespondHeaders))
+
+	// Print Respond Body:
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		LoggerError.Println(err)
+	}
+	LoggerDebug.Println(string(body))
 }
