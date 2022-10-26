@@ -1,6 +1,7 @@
 package retryif
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -99,10 +100,7 @@ func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			if !r.containsCode(attemptRespond.StatusCode) {
 				rw.WriteHeader(attemptRespond.StatusCode)
 
-				attemptBody, err := io.ReadAll(attemptRespond.Body)
-				if err != nil {
-					LoggerError.Println(err)
-				}
+				attemptBody := getHttpBody(attemptRespond)
 
 				rw.Write(attemptBody)
 
@@ -114,10 +112,7 @@ func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 				rw.WriteHeader(attemptRespond.StatusCode)
 
-				attemptsBody, err := io.ReadAll(attemptRespond.Body)
-				if err != nil {
-					LoggerError.Println(err)
-				}
+				attemptsBody := getHttpBody(attemptRespond)
 
 				rw.Write(attemptsBody)
 
@@ -130,10 +125,7 @@ func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	} else {
 		rw.WriteHeader(respond.StatusCode)
 
-		body, err := io.ReadAll(respond.Body)
-		if err != nil {
-			LoggerError.Println(err)
-		}
+		body := getHttpBody(respond)
 
 		rw.Write(body)
 		LoggerInfo.Print("Request passed successfully in first attempt :)")
@@ -159,6 +151,35 @@ func (r *RetryIF) testRequest(req *http.Request) *http.Response {
 	resp := recorder.Result()
 
 	return resp
+}
+
+func getHttpBody(resp *http.Response) []byte {
+	switch resp.Header.Get("Content-Encoding") {
+	case "gzip":
+		reader, err := gzip.NewReader(resp.Body)
+		reader.Close()
+
+		if err != nil {
+			LoggerError.Println(err)
+		}
+
+		body, err := io.ReadAll(reader)
+
+		if err != nil {
+			LoggerError.Println(err)
+		}
+
+		return body
+
+	default:
+		body, err := io.ReadAll(resp.Body)
+
+		if err != nil {
+			LoggerError.Println(err)
+		}
+
+		return body
+	}
 }
 
 func PrintDebugResponse(req *http.Request, res *http.Response) {
