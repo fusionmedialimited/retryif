@@ -1,4 +1,3 @@
 module github.com/fusionmedialimited/retryif
 
-go 1.19
-
+go 1.18
