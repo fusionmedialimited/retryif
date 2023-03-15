@@ -1,6 +1,7 @@
 package retryif
 
 import (
+	"strconv"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -88,14 +89,22 @@ func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	attempts := 1
 	respond := r.testRequest(req)
 
-	LoggerInfo.Printf("Got new Status: %d", respond.StatusCode)
+	LoggerInfo.Printf("Got new Status: %d %v", respond.StatusCode, req)
 
 	if r.containsCode(respond.StatusCode) {
 		for attempts < r.attempts {
+			rw.Header().Set("X-RetryIf-Retries", strconv.Itoa(attempts))
 			attempts++
 
 			attemptRespond := r.testRequest(req)
 			LoggerInfo.Printf("Got new Status: %d\n", attemptRespond.StatusCode)
+
+			for k, vs := range attemptRespond.Header {
+				rw.Header().Del(k)
+				for i := range vs {
+					rw.Header().Add(k, vs[i])
+				}
+			}
 
 			if !r.containsCode(attemptRespond.StatusCode) {
 				rw.WriteHeader(attemptRespond.StatusCode)
@@ -123,6 +132,12 @@ func (r *RetryIF) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 	} else {
+		for k, vs := range respond.Header {
+			rw.Header().Del(k)
+			for i := range vs {
+				rw.Header().Add(k, vs[i])
+			}
+		}
 		rw.WriteHeader(respond.StatusCode)
 
 		body := getHttpBody(respond)
