@@ -10,7 +10,7 @@ import (
 
 func TestRetryIfNoRetry(t *testing.T) {
 	cfg := retryif.CreateConfig()
-	cfg.Status = append(cfg.Status, http.StatusServiceUnavailable)
+	cfg.StatusCodes = append(cfg.StatusCodes, http.StatusServiceUnavailable)
 
 	ctx := context.Background()
 
@@ -36,7 +36,7 @@ func TestRetryIfNoRetry(t *testing.T) {
 func TestRetryIfMaxAttempts(t *testing.T) {
 	cfg := retryif.CreateConfig()
 	cfg.Attempts = 3
-	cfg.Status = append(cfg.Status, http.StatusServiceUnavailable)
+	cfg.StatusCodes = append(cfg.StatusCodes, http.StatusServiceUnavailable)
 
 	ctx := context.Background()
 
@@ -70,7 +70,7 @@ func TestRetryIfMaxAttempts(t *testing.T) {
 func TestRetryOnce(t *testing.T) {
 	cfg := retryif.CreateConfig()
 	cfg.Attempts = 3
-	cfg.Status = append(cfg.Status, http.StatusServiceUnavailable)
+	cfg.StatusCodes = append(cfg.StatusCodes, http.StatusServiceUnavailable)
 
 	ctx := context.Background()
 
@@ -110,7 +110,7 @@ func TestRetryOnce(t *testing.T) {
 func TestRetryCarryHeaders(t *testing.T) {
 	cfg := retryif.CreateConfig()
 	cfg.Attempts = 3
-	cfg.Status = append(cfg.Status, http.StatusServiceUnavailable)
+	cfg.StatusCodes = append(cfg.StatusCodes, http.StatusServiceUnavailable)
 
 	ctx := context.Background()
 
@@ -150,7 +150,7 @@ func TestRetryCarryHeaders(t *testing.T) {
 
 func TestNoRetryCarryHeaders(t *testing.T) {
 	cfg := retryif.CreateConfig()
-	cfg.Status = append(cfg.Status, http.StatusServiceUnavailable)
+	cfg.StatusCodes = append(cfg.StatusCodes, http.StatusServiceUnavailable)
 
 	ctx := context.Background()
 
